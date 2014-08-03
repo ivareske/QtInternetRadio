@@ -6,6 +6,9 @@
 #include <QMultimedia>
 #include <QMediaPlayer>
 #include <QStringList>
+#include <QDomDocument>
+#include <QDomNode>
+
 
 namespace Ui {
 class MainWindow;
@@ -59,8 +62,8 @@ private slots:
     void presetTriggered();
 
 private:
-    bool isStation(const QXmlStreamReader &xml) const;
-    void addPresetSubMenus(QXmlStreamReader &xml, QMenu *parent);
+    bool isStation(const QDomElement &xml) const;
+    void addPresetSubMenus(QDomElement &xml, QMenu *parent);
 
 
     Ui::MainWindow *ui;
