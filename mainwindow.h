@@ -41,13 +41,14 @@ public:
         return _id;
     }
     inline bool isValid() const{
-        return _id!=-1;
+        return _sources.count()>0;
     }
 
 private:
     QString _name,_url;
     QStringList _sources;
     int _id;
+
 };
 
 
@@ -71,19 +72,24 @@ private slots:
     void on_volumeSlider_valueChanged();
     void on_MuteCheckBox_toggled(bool checked);
     void updateInformation();
+    void on_actionOpen_URL_triggered();
 private:
     bool isStation(const QDomElement &xml) const;
     void addPresetSubMenus(QDomElement &xml, QMenu *parent);
     void addStation(QDomElement &xml, QMenu *parent);
+    void changeStation();
+
 
 
     Ui::MainWindow *ui;
     QHash<int,Station> _stations;
     QSettings *_settings;
     Station _currentStation;
-    bool _isPlaying;
-    QMediaPlayer _player;
+    QMediaPlayer *_player;
     QList<Station> _favourites;
+    bool _isPlaying;
+
+
 
 
 };

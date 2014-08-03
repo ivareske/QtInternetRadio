@@ -2,8 +2,10 @@
 #include "ui_mainwindow.h"
 #include <QMessageBox>
 #include <QFile>
+#include <QInputDialog>
 
-
+//https://github.com/rburchell/groovy
+//http://answer.techwikihow.com/66287/playing-h264-video-stream-raspberri-pi-qt.html
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow){
     ui->setupUi(this);
@@ -11,6 +13,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     this->setWindowTitle("QtInternetRadio");
 
     ui->MuteCheckBox->setChecked(_settings->value("MuteCheckBox",false).toBool());
+
+    _isPlaying=false;
+    _player = new QMediaPlayer(0,QMediaPlayer::StreamPlayback);
 
 
     ui->volumeSlider->setRange(0,100);
@@ -26,7 +31,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
 
 
-    _isPlaying = false;
 
     ui->actionSelect_stations_for_logging->setCheckable(true);
     ui->actionShow_playlist_logging->setCheckable(true);
@@ -80,7 +84,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
 MainWindow::~MainWindow(){
     delete ui;
-
+    delete _player;_player=0;
     delete _settings;_settings=0;
 }
 
@@ -212,38 +216,75 @@ void MainWindow::presetTriggered(){
     }else{
         //change channel / play...
         _currentStation = s;
-        if(_isPlaying){
-            //stop and change channel and play if already playing
-            on_StopButton_clicked();
-            on_PlayButton_clicked();
-        }else{
-            updateInformation();
-        }
+        changeStation();
     }
 
 }
 
-void MainWindow::on_volumeSlider_valueChanged(){
-    _player.setVolume(ui->volumeSlider->value());
+void MainWindow::changeStation(){
+    if(_isPlaying){
+        //stop and change channel and play if already playing
+        on_StopButton_clicked();
+        on_PlayButton_clicked();
+    }else{
+        updateInformation();
+    }
 }
 
+void MainWindow::on_actionOpen_URL_triggered(){
+
+    bool ok;
+    QString url = QInputDialog::getText(this,"Open URL","URL:",QLineEdit::Normal,_settings->value("lastUsedURL","").toString(),&ok);
+    if(!ok){
+        return;
+    }
+    _settings->setValue("lastUsedURL",url);
+
+    Station station("",url,QStringList(url),0);
+    _currentStation = station;
+    changeStation();
+
+}
+
+void MainWindow::on_volumeSlider_valueChanged(){
+    _player->setVolume(ui->volumeSlider->value());
+    QString str = "Volume = "+QString::number(ui->volumeSlider->value());
+    statusBar()->showMessage(str,4000);
+    ui->volumeSlider->setToolTip(str);
+}
+
+
+
 void MainWindow::on_PlayButton_clicked(){
+
     _isPlaying=true;
-    _player.setMedia(QUrl::fromLocalFile("/Users/me/Music/coolsong.mp3"));
-    _player.setVolume(ui->volumeSlider->value());
-    _player.play();
+
+    QStringList sources = _currentStation.sources();
+    for(int i=0;i<sources.size();i++){
+        _player->setMedia(QUrl(sources[i]));
+        _player->play();
+        if( _player->state()==QMediaPlayer::PlayingState ){
+            break;
+        }
+    }
+    if(_player->state()!=QMediaPlayer::PlayingState){
+        QMessageBox::critical(this,"Error","Could not start playing any of the specified sources for channel "+_currentStation.name());
+    }
+    _player->setVolume(ui->volumeSlider->value());
     updateInformation();
 }
 
 void MainWindow::on_StopButton_clicked(){
+
     _isPlaying=false;
-    _player.stop();
+    _player->stop();
     updateInformation();
 }
 
 void MainWindow::on_MuteCheckBox_toggled(bool checked){
-    _player.setMuted(checked);
+    _player->setMuted(checked);
 }
+
 
 void MainWindow::updateInformation(){
     //Should be called after play/stop has been called and _currentStation set
@@ -254,19 +295,23 @@ void MainWindow::updateInformation(){
     str.append("\n\n");
 
     if( _isPlaying ){
-        QString artist = _player.metaData("AlbumArtist").toString();
-        QString album = _player.metaData("AlbumTitle").toString();
-        QString title = _player.metaData("Title").toString();
+        QString artist = _player->metaData("AlbumArtist").toString();
+        QString album = _player->metaData("AlbumTitle").toString();
+        QString title = _player->metaData("Title").toString();
         str.append(artist+" - "+album+" - "+title);
 
         bool ok;
-        int bitRate = _player.metaData("AudioBitRate").toInt(&ok);
+        int bitRate = _player->metaData("AudioBitRate").toInt(&ok);
         QString bitRateStr = "Unknown bitrate";
         if(ok){
             bitRateStr=QString::number(bitRate/1000)+" kbps";
         }
-        QString codec = _player.metaData("AudioCodec").toString();
-        str.append(bitRateStr+", codec: "+codec);
+        QString codec = _player->metaData("AudioCodec").toString();
+        QString songInfo = bitRateStr;
+        if(!codec.simplified().isEmpty()){
+            songInfo.append(", codec: "+codec);
+        }
+        str.append(songInfo);
     }else{
         str.append("Not playing");
         str.append("\n");
