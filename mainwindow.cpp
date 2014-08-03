@@ -7,7 +7,37 @@
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow){
     ui->setupUi(this);
+    _settings = new QSettings("settings.ini",QSettings::IniFormat,this);
+    this->setWindowTitle("QtInternetRadio");
 
+    ui->MuteCheckBox->setChecked(_settings->value("MuteCheckBox",false).toBool());
+
+
+    ui->volumeSlider->setRange(0,100);
+    ui->volumeSlider->setTickInterval(1);
+    ui->volumeSlider->setTracking(true);
+    bool ok;
+    int vol = _settings->value("volumeSlider",50).toInt(&ok);
+    if(!ok){
+        vol=50;
+    }
+    ui->volumeSlider->setValue( vol );
+
+
+
+
+    _isPlaying = false;
+
+    ui->actionSelect_stations_for_logging->setCheckable(true);
+    ui->actionShow_playlist_logging->setCheckable(true);
+    ui->actionShow_playlist_logging->setChecked(_settings->value("actionShow_playlist_logging",false).toBool());
+    on_actionShow_playlist_logging_toggled(ui->actionShow_playlist_logging->isChecked());
+
+
+
+
+    this->restoreGeometry( _settings->value("geometry",this->geometry()).toByteArray() );
+    this->restoreState( _settings->value("windowState").toByteArray() );
 
 
     QFile file(qApp->applicationDirPath()+"/presets.xml");
@@ -30,9 +60,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     while (!n.isNull()) {
         if (n.isElement()) {
             QDomElement e = n.toElement();
-            qDebug() << "Element name: " << e.tagName();
+            //qDebug() << "Element name: " << e.tagName();
             QString group = e.attribute("title");
-            qDebug()<<group;
+            //qDebug()<<group;
             if(!group.isEmpty() && e.hasAttribute("id")){
                 QMenu *menu = new QMenu(group);
                 ui->menuPresets->addMenu(menu);
@@ -46,6 +76,40 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     }
 
 }
+
+
+MainWindow::~MainWindow(){
+    delete ui;
+
+    delete _settings;_settings=0;
+}
+
+void MainWindow::closeEvent(QCloseEvent *e) {
+
+    on_StopButton_clicked();
+    _settings->setValue("geometry", saveGeometry());
+    _settings->setValue("windowState", saveState());
+    _settings->setValue("actionShow_playlist_logging",ui->actionShow_playlist_logging->isChecked());
+    _settings->setValue("volumeSlider",ui->volumeSlider->value());
+    _settings->setValue("MuteCheckBox",ui->MuteCheckBox->isChecked());
+
+    QMainWindow::closeEvent(e);
+}
+
+void MainWindow::on_actionShow_playlist_logging_toggled(bool checked){
+    ui->PlayListLoggingGroupBox->setVisible(checked);
+}
+
+void MainWindow::on_actionSelect_stations_for_logging_toggled( bool checked ){
+
+    QString str="Stop";
+    if(!checked){
+        str="Start";
+    }
+    ui->actionSelect_stations_for_logging->setText(str+" selecting stations for playlist logging");
+
+}
+
 
 bool MainWindow::isStation(const QDomElement &xml) const{
     return xml.tagName().toLower()=="station";
@@ -65,46 +129,24 @@ void MainWindow::addPresetSubMenus( QDomElement &xml, QMenu *parent ){
         parent->addMenu(menu);
         for(int i=0;i<xml.childNodes().size();i++){
             QDomElement childElement = xml.childNodes().at(i).toElement();
-            if(xml.isNull()){
+            if(childElement.isNull()){
                 continue;
             }
-            qDebug()<<childElement.tagName()<<childElement.text();
-            addPresetSubMenus(childElement,menu);
+            //qDebug()<<childElement.tagName()<<childElement.text();
+            if(isStation(childElement)){
+                addStation(childElement,menu);
+            }else{
+                addPresetSubMenus(childElement,menu);
+            }
         }
     }else if(_isStation){
         //This child group does not have more child group, add it as as action
         //qDebug()<<xml.name().toString();
 
-        QString url = xml.attribute("url");
-        QString name = xml.attribute("title");
-        bool ok;
-        int id = xml.attribute("id").toInt(&ok);
-        if(!ok){
-            id=-1;
-        }
 
-        QDomNodeList childs = xml.childNodes();
-        QStringList sources;QString tmpname;
-        for(int i=0;i<childs.size();i++){
-            QDomElement se = childs.at(i).toElement();
-            if(se.isNull()){
-                continue;
-            }
-            tmpname = se.tagName().toLower();
-            if(tmpname=="source"){
-                QString source = se.text();
-                sources.append(source);
-            }
-        }
+        addStation(xml,parent);
         xml=xml.nextSibling().toElement();
-        qDebug()<<xml.tagName();
-        Station station(name,url,sources,id);
-        _stations[id]=station;
-        QAction *action = new QAction(name,parent);
-        action->setData(id);
-        connect(action,SIGNAL(triggered()),this,SLOT(presetTriggered()));
-        parent->addAction(action);
-
+        //qDebug()<<xml.tagName();
 
         addPresetSubMenus(xml,parent);
     }
@@ -115,23 +157,122 @@ void MainWindow::addPresetSubMenus( QDomElement &xml, QMenu *parent ){
 
 }
 
+void MainWindow::addStation(QDomElement &xml,QMenu *parent){
+
+    QString url = xml.attribute("url");
+    QString name = xml.attribute("title");
+    bool ok;
+    int id = xml.attribute("id").toInt(&ok);
+    if(!ok){
+        id=-1;
+    }
+
+    QDomNodeList childs = xml.childNodes();
+    QStringList sources;QString tmpname;
+    for(int i=0;i<childs.size();i++){
+        QDomElement se = childs.at(i).toElement();
+        if(se.isNull()){
+            continue;
+        }
+        tmpname = se.tagName().toLower();
+        if(tmpname=="source"){
+            QString source = se.text();
+            sources.append(source);
+        }
+    }
+
+    Station station(name,url,sources,id);
+    _stations[id]=station;
+    QAction *action = new QAction(name,parent);
+    action->setData(id);
+    connect(action,SIGNAL(triggered()),this,SLOT(presetTriggered()));
+    parent->addAction(action);
+}
+
+
+
 void MainWindow::presetTriggered(){
+    QAction *action = qobject_cast<QAction*>(QObject::sender());
+    if(action==0){
+        return;
+    }
+    bool ok;
+    int id = action->data().toInt(&ok);
+    if(!ok){
+        return;
+    }
+    Station s = _stations[id];
+    if(!s.isValid()){
+        return;
+    }
+    qDebug()<<"Radio channel "<<s.name()<<"selected";
+
+    if(ui->actionSelect_stations_for_logging->isChecked()){
+        //add channel to list to log and start logging if logging is started
+    }else{
+        //change channel / play...
+        _currentStation = s;
+        if(_isPlaying){
+            //stop and change channel and play if already playing
+            on_StopButton_clicked();
+            on_PlayButton_clicked();
+        }else{
+            updateInformation();
+        }
+    }
 
 }
 
-MainWindow::~MainWindow(){
-    delete ui;
+void MainWindow::on_volumeSlider_valueChanged(){
+    _player.setVolume(ui->volumeSlider->value());
 }
-
 
 void MainWindow::on_PlayButton_clicked(){
-
+    _isPlaying=true;
+    _player.setMedia(QUrl::fromLocalFile("/Users/me/Music/coolsong.mp3"));
+    _player.setVolume(ui->volumeSlider->value());
+    _player.play();
+    updateInformation();
 }
 
 void MainWindow::on_StopButton_clicked(){
-
+    _isPlaying=false;
+    _player.stop();
+    updateInformation();
 }
 
-void MainWindow::on_MuteButton_clicked(){
+void MainWindow::on_MuteCheckBox_toggled(bool checked){
+    _player.setMuted(checked);
+}
+
+void MainWindow::updateInformation(){
+    //Should be called after play/stop has been called and _currentStation set
+
+    QString str=_currentStation.name();
+    str.append("\n");
+    str.append(_currentStation.url());
+    str.append("\n\n");
+
+    if( _isPlaying ){
+        QString artist = _player.metaData("AlbumArtist").toString();
+        QString album = _player.metaData("AlbumTitle").toString();
+        QString title = _player.metaData("Title").toString();
+        str.append(artist+" - "+album+" - "+title);
+
+        bool ok;
+        int bitRate = _player.metaData("AudioBitRate").toInt(&ok);
+        QString bitRateStr = "Unknown bitrate";
+        if(ok){
+            bitRateStr=QString::number(bitRate/1000)+" kbps";
+        }
+        QString codec = _player.metaData("AudioCodec").toString();
+        str.append(bitRateStr+", codec: "+codec);
+    }else{
+        str.append("Not playing");
+        str.append("\n");
+    }
+
+    ui->InfoLabel->setText(str);
+
 
 }

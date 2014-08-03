@@ -8,6 +8,7 @@
 #include <QStringList>
 #include <QDomDocument>
 #include <QDomNode>
+#include <QSettings>
 
 
 namespace Ui {
@@ -39,6 +40,9 @@ public:
     inline int id() const{
         return _id;
     }
+    inline bool isValid() const{
+        return _id!=-1;
+    }
 
 private:
     QString _name,_url;
@@ -54,20 +58,33 @@ public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
 
+
+protected:
+    void closeEvent(QCloseEvent *e);
+
 private slots:
     void on_PlayButton_clicked();
     void on_StopButton_clicked();
-    void on_MuteButton_clicked();
-
     void presetTriggered();
-
+    void on_actionSelect_stations_for_logging_toggled(bool checked);
+    void on_actionShow_playlist_logging_toggled(bool checked);
+    void on_volumeSlider_valueChanged();
+    void on_MuteCheckBox_toggled(bool checked);
+    void updateInformation();
 private:
     bool isStation(const QDomElement &xml) const;
     void addPresetSubMenus(QDomElement &xml, QMenu *parent);
+    void addStation(QDomElement &xml, QMenu *parent);
 
 
     Ui::MainWindow *ui;
     QHash<int,Station> _stations;
+    QSettings *_settings;
+    Station _currentStation;
+    bool _isPlaying;
+    QMediaPlayer _player;
+    QList<Station> _favourites;
+
 
 };
 
