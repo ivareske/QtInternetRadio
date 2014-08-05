@@ -9,13 +9,27 @@
 #include <QDomDocument>
 #include <QDomNode>
 #include <QSettings>
+#include "filedownloader.h"
+#include <QPair>
+#include <QString>
 
 
 namespace Ui {
 class MainWindow;
 }
 
+class StationId : public QPair<int,QString>{
+public:
+    StationId(int id=-1,const QString &name="") : QPair<int,QString>(id,name){
 
+    }
+    inline bool isValid() const{
+        return this->first!=-1 && !this->second.isEmpty();
+    }
+    operator QVariant() const{
+        return QVariant::fromValue(*this);
+    }
+};
 
 class Station{
 
@@ -44,12 +58,17 @@ public:
         return _sources.count()>0;
     }
 
+    StationId stationId() const{
+        return StationId(_id,_name);
+    }
+
 private:
     QString _name,_url;
     QStringList _sources;
     int _id;
 
 };
+
 
 
 class MainWindow : public QMainWindow{
@@ -64,7 +83,7 @@ protected:
     void closeEvent(QCloseEvent *e);
 
 private slots:
-    void on_PlayButton_clicked(int sourceInd=-1);
+    void on_PlayButton_clicked();
     void on_StopButton_clicked();
     void presetTriggered();
     void on_actionSelect_stations_for_logging_toggled(bool checked);
@@ -73,10 +92,12 @@ private slots:
     void on_MuteCheckBox_toggled(bool checked);
     void updateInformation();
     void on_actionOpen_URL_triggered();
+    void playListDownloaded();
 private:
+    void readScreamerRadioPresets();
     bool isStation(const QDomElement &xml) const;
-    void addPresetSubMenus(QDomElement &xml, QMenu *parent);
-    void addStation(QDomElement &xml, QMenu *parent);
+    void addScreamerRadioPresetSubMenus(QDomElement &xml, QMenu *parent);
+    void addScreamerRadioStation(QDomElement &xml, QMenu *parent);
     void changeStation();
     bool isPlayList(const QString &urlString);
     bool playUrl(const QString &url);
@@ -84,15 +105,19 @@ private:
 
 
     Ui::MainWindow *ui;
-    QHash<int,Station> _stations;
+    QHash<StationId,Station> _stations;
     QSettings *_settings;
     Station _currentStation;
     QMediaPlayer *_player;
     QList<Station> _favourites;
-    bool _isPlaying;
-    int _sourceInd;
+    bool _isPlaying;    
+    FileDownloader *_fileDownloader;    
+    QMediaPlaylist *_playList;
+
 
 
 };
+
+Q_DECLARE_METATYPE( StationId )
 
 #endif // MAINWINDOW_H

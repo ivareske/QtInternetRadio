@@ -13,8 +13,8 @@ TEMPLATE = app
 
 
 SOURCES += main.cpp\
-        mainwindow.cpp downloadmanager.cpp
+        mainwindow.cpp filedownloader.cpp
 
-HEADERS  += mainwindow.h downloadmanager.h
+HEADERS  += mainwindow.h filedownloader.h
 
 FORMS    += mainwindow.ui

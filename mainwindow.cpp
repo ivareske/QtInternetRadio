@@ -5,19 +5,24 @@
 #include <QInputDialog>
 #include <QFileInfo>
 #include <QMediaPlaylist>
-#include "downloadmanager.h"
 
-//https://github.com/rburchell/groovy
-//http://answer.techwikihow.com/66287/playing-h264-video-stream-raspberri-pi-qt.html
+
+//TODO: asx playlists must be parsed
+//media info not shown?
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow){
     ui->setupUi(this);
+    qRegisterMetaTypeStreamOperators<StationId>("StationId");
+
     _settings = new QSettings("settings.ini",QSettings::IniFormat,this);
     this->setWindowTitle("QtInternetRadio");
 
     ui->MuteCheckBox->setChecked(_settings->value("MuteCheckBox",false).toBool());
 
-    _sourceInd=0;
+
+    _playList = new QMediaPlaylist(this);
+    _fileDownloader = new FileDownloader(this);
+    connect(_fileDownloader,SIGNAL(downloaded()),this,SLOT(playListDownloaded()));
     _isPlaying=false;
     _player = new QMediaPlayer(0,QMediaPlayer::StreamPlayback);
 
@@ -47,6 +52,44 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     this->restoreGeometry( _settings->value("geometry",this->geometry()).toByteArray() );
     this->restoreState( _settings->value("windowState").toByteArray() );
 
+    readScreamerRadioPresets();
+
+
+    StationId id = _settings->value("lastUsedStation","").value<StationId>();
+    if(id.isValid()){
+        Station s = _stations[id];
+        if(s.isValid()){
+            _currentStation=s;
+            updateInformation();;
+        }
+    }
+
+}
+
+
+MainWindow::~MainWindow(){
+    delete ui;
+    delete _player;_player=0;
+    delete _settings;_settings=0;
+    delete _playList;_playList=0;
+
+}
+
+void MainWindow::closeEvent(QCloseEvent *e) {
+
+    on_StopButton_clicked();
+    _settings->setValue("geometry", saveGeometry());
+    _settings->setValue("windowState", saveState());
+    _settings->setValue("actionShow_playlist_logging",ui->actionShow_playlist_logging->isChecked());
+    _settings->setValue("volumeSlider",ui->volumeSlider->value());
+    _settings->setValue("MuteCheckBox",ui->MuteCheckBox->isChecked());
+    _settings->setValue("lastUsedStation",_currentStation.stationId());
+
+    QMainWindow::closeEvent(e);
+}
+
+void MainWindow::readScreamerRadioPresets(){
+    ui->menuPresets->clear();
 
     QFile file(qApp->applicationDirPath()+"/presets.xml");
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -76,32 +119,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
                 ui->menuPresets->addMenu(menu);
                 for(int i=0;i<n.childNodes().size();i++){
                     e=n.childNodes().at(i).toElement();
-                    addPresetSubMenus(e,menu);
+                    addScreamerRadioPresetSubMenus(e,menu);
                 }
             }
         }
         n = n.nextSibling();
     }
 
-}
-
-
-MainWindow::~MainWindow(){
-    delete ui;
-    delete _player;_player=0;
-    delete _settings;_settings=0;
-}
-
-void MainWindow::closeEvent(QCloseEvent *e) {
-
-    on_StopButton_clicked();
-    _settings->setValue("geometry", saveGeometry());
-    _settings->setValue("windowState", saveState());
-    _settings->setValue("actionShow_playlist_logging",ui->actionShow_playlist_logging->isChecked());
-    _settings->setValue("volumeSlider",ui->volumeSlider->value());
-    _settings->setValue("MuteCheckBox",ui->MuteCheckBox->isChecked());
-
-    QMainWindow::closeEvent(e);
 }
 
 void MainWindow::on_actionShow_playlist_logging_toggled(bool checked){
@@ -123,7 +147,7 @@ bool MainWindow::isStation(const QDomElement &xml) const{
     return xml.tagName().toLower()=="station";
 }
 
-void MainWindow::addPresetSubMenus( QDomElement &xml, QMenu *parent ){
+void MainWindow::addScreamerRadioPresetSubMenus( QDomElement &xml, QMenu *parent ){
 
 
 
@@ -142,9 +166,9 @@ void MainWindow::addPresetSubMenus( QDomElement &xml, QMenu *parent ){
             }
             //qDebug()<<childElement.tagName()<<childElement.text();
             if(isStation(childElement)){
-                addStation(childElement,menu);
+                addScreamerRadioStation(childElement,menu);
             }else{
-                addPresetSubMenus(childElement,menu);
+                addScreamerRadioPresetSubMenus(childElement,menu);
             }
         }
     }else if(_isStation){
@@ -152,11 +176,11 @@ void MainWindow::addPresetSubMenus( QDomElement &xml, QMenu *parent ){
         //qDebug()<<xml.name().toString();
 
 
-        addStation(xml,parent);
+        addScreamerRadioStation(xml,parent);
         xml=xml.nextSibling().toElement();
         //qDebug()<<xml.tagName();
 
-        addPresetSubMenus(xml,parent);
+        addScreamerRadioPresetSubMenus(xml,parent);
     }
 
 
@@ -165,7 +189,7 @@ void MainWindow::addPresetSubMenus( QDomElement &xml, QMenu *parent ){
 
 }
 
-void MainWindow::addStation(QDomElement &xml,QMenu *parent){
+void MainWindow::addScreamerRadioStation(QDomElement &xml,QMenu *parent){
 
     QString url = xml.attribute("url");
     QString name = xml.attribute("title");
@@ -190,9 +214,10 @@ void MainWindow::addStation(QDomElement &xml,QMenu *parent){
     }
 
     Station station(name,url,sources,id);
-    _stations[id]=station;
+    StationId p(id,name);
+    _stations[p]=station;
     QAction *action = new QAction(name,parent);
-    action->setData(id);
+    action->setData(p);
     connect(action,SIGNAL(triggered()),this,SLOT(presetTriggered()));
     parent->addAction(action);
 }
@@ -203,10 +228,9 @@ void MainWindow::presetTriggered(){
     QAction *action = qobject_cast<QAction*>(QObject::sender());
     if(action==0){
         return;
-    }
-    bool ok;
-    int id = action->data().toInt(&ok);
-    if(!ok){
+    }    
+    StationId id = action->data().value<StationId>();
+    if(!id.isValid()){
         return;
     }
     Station s = _stations[id];
@@ -229,10 +253,8 @@ void MainWindow::changeStation(){
     if(_isPlaying){
         //stop and change channel and play if already playing
         on_StopButton_clicked();
-        on_PlayButton_clicked();
-    }else{
-        updateInformation();
     }
+    on_PlayButton_clicked();
 }
 
 void MainWindow::on_actionOpen_URL_triggered(){
@@ -258,39 +280,41 @@ void MainWindow::on_volumeSlider_valueChanged(){
 }
 
 bool MainWindow::isPlayList(const QString &urlString){
-    QStringList exts;exts<<"m3u"<<"pls"<<"fpl";
+    QStringList exts;exts<<"m3u"<<"pls"<<"fpl"<<"asx";
     QFileInfo fi(urlString);
     QString ext = fi.suffix().toLower();
     return exts.contains(ext);
 
 }
 
-void MainWindow::on_PlayButton_clicked(int sourceInd){
+void MainWindow::on_PlayButton_clicked(){
 
     if(_isPlaying){
         return;
     }
 
-    if(_sourceInd>-1){
-        _sourceInd=sourceInd;
+    //QStringList sources; sources<<"http://mms-live.online.no/p4_norge_mp3_mq";
+    QStringList sources = _currentStation.sources();
+    for(int i=0;i<sources.size();i++){
+        QString source = sources[i];
+        if(isPlayList(source)){
+            _fileDownloader->download(QUrl(source));
+            //_playList->load(QNetworkRequest(QUrl(source)));
+            _player->setPlaylist(_playList);
+        }else{
+            playUrl(source);
+        }
+        if(_isPlaying){
+            break;
+        }
     }
-    QStringList sources; sources<<"http://mms-live.online.no/p4_norge_mp3_mq";
-    //QStringList sources = _currentStation.sources();
-    QString source = sources(_sourceInd);
-    if(isPlayList(sources[i])){
-        DownloadManager mgr();
-        mgr.doDownload(QUrl(sources[i]));
-        mgr.execute();
-    }else{
-        playUrl(sources[i]);
-    }
-
 
 }
 
-bool MainWindow::playUrl(const QString &url){
-    _player->setMedia(url);
+bool MainWindow::playUrl(const QString &url){    
+    _player->setMedia(QMediaContent(url));
     _player->setVolume(ui->volumeSlider->value());
+    _player->play();
     bool plays = _player->state()!=QMediaPlayer::PlayingState;
     if(plays){
         _isPlaying=true;
@@ -300,11 +324,18 @@ bool MainWindow::playUrl(const QString &url){
 
 }
 
+
 void MainWindow::on_StopButton_clicked(){
 
     _isPlaying=false;
     _player->stop();
     updateInformation();
+}
+
+void MainWindow::playListDownloaded(){
+    QString data(_fileDownloader->downloadedData());
+    //data now contains content of downloaded playlist
+    playUrl(data);
 }
 
 void MainWindow::on_MuteCheckBox_toggled(bool checked){
