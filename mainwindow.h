@@ -26,6 +26,12 @@ public:
     inline bool isValid() const{
         return this->first!=-1 && !this->second.isEmpty();
     }
+    inline int id() const{
+        return first;
+    }
+    inline QString name() const{
+        return second;
+    }
     operator QVariant() const{
         return QVariant::fromValue(*this);
     }
@@ -93,7 +99,11 @@ private slots:
     void updateInformation();
     void on_actionOpen_URL_triggered();
     void playListDownloaded();
+    void on_actionAdd_current_station_to_favourites_triggered();
 private:
+    void clearCurrentStation();
+    QAction *createMenuActionForStation(StationId id, QMenu *parent);
+    void updateFavouritesMenu();
     void readScreamerRadioPresets();
     bool isStation(const QDomElement &xml) const;
     void addScreamerRadioPresetSubMenus(QDomElement &xml, QMenu *parent);
@@ -109,15 +119,16 @@ private:
     QSettings *_settings;
     Station _currentStation;
     QMediaPlayer *_player;
-    QList<Station> _favourites;
+    QList<StationId> _favourites;
     bool _isPlaying;    
     FileDownloader *_fileDownloader;    
     QMediaPlaylist *_playList;
 
-
-
 };
 
 Q_DECLARE_METATYPE( StationId )
+Q_DECLARE_METATYPE( QList<StationId> )
+
+bool lessThanStationId(StationId id1, StationId id2);
 
 #endif // MAINWINDOW_H

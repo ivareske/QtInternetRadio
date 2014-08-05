@@ -277,7 +277,7 @@
     <property name="title">
      <string>Favourites</string>
     </property>
-    <addaction name="actionAdd_current_station_to_favourites_2"/>
+    <addaction name="actionAdd_current_station_to_favourites"/>
     <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menuPresets">
@@ -313,11 +313,6 @@
    </property>
   </action>
   <action name="actionAdd_current_station_to_favourites">
-   <property name="text">
-    <string>Add current station to favourites</string>
-   </property>
-  </action>
-  <action name="actionAdd_current_station_to_favourites_2">
    <property name="text">
     <string>Add current station to favourites</string>
    </property>

@@ -13,6 +13,7 @@
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow){
     ui->setupUi(this);
     qRegisterMetaTypeStreamOperators<StationId>("StationId");
+    qRegisterMetaTypeStreamOperators<QList<StationId> >("QList<StationId>");
 
     _settings = new QSettings("settings.ini",QSettings::IniFormat,this);
     this->setWindowTitle("QtInternetRadio");
@@ -20,6 +21,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     ui->MuteCheckBox->setChecked(_settings->value("MuteCheckBox",false).toBool());
 
 
+    clearCurrentStation();
     _playList = new QMediaPlaylist(this);
     _fileDownloader = new FileDownloader(this);
     connect(_fileDownloader,SIGNAL(downloaded()),this,SLOT(playListDownloaded()));
@@ -54,8 +56,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
     readScreamerRadioPresets();
 
+    _favourites = _settings->value("favourites").value<QList<StationId> >();
+    updateFavouritesMenu();
 
-    StationId id = _settings->value("lastUsedStation","").value<StationId>();
+
+    StationId id = _settings->value("lastUsedStation",StationId()).value<StationId>();
     if(id.isValid()){
         Station s = _stations[id];
         if(s.isValid()){
@@ -84,6 +89,7 @@ void MainWindow::closeEvent(QCloseEvent *e) {
     _settings->setValue("volumeSlider",ui->volumeSlider->value());
     _settings->setValue("MuteCheckBox",ui->MuteCheckBox->isChecked());
     _settings->setValue("lastUsedStation",_currentStation.stationId());
+    _settings->setValue("favourites",QVariant::fromValue(_favourites));
 
     QMainWindow::closeEvent(e);
 }
@@ -216,13 +222,17 @@ void MainWindow::addScreamerRadioStation(QDomElement &xml,QMenu *parent){
     Station station(name,url,sources,id);
     StationId p(id,name);
     _stations[p]=station;
-    QAction *action = new QAction(name,parent);
-    action->setData(p);
-    connect(action,SIGNAL(triggered()),this,SLOT(presetTriggered()));
-    parent->addAction(action);
+    createMenuActionForStation(p,parent);
+
 }
 
-
+QAction* MainWindow::createMenuActionForStation(StationId id, QMenu *parent){
+    QAction *action = new QAction(id.name(),parent);
+    action->setData(id);
+    connect(action,SIGNAL(triggered()),this,SLOT(presetTriggered()));
+    parent->addAction(action);
+    return action;
+}
 
 void MainWindow::presetTriggered(){
     QAction *action = qobject_cast<QAction*>(QObject::sender());
@@ -377,4 +387,35 @@ void MainWindow::updateInformation(){
     ui->InfoLabel->setText(str);
 
 
+}
+
+void MainWindow::on_actionAdd_current_station_to_favourites_triggered(){
+    if(!_favourites.contains(_currentStation.stationId()) && _currentStation.isValid()){
+        _favourites.append(_currentStation.stationId());
+    }
+    qSort(_favourites.begin(),_favourites.end(),lessThanStationId);
+    updateFavouritesMenu();
+}
+
+void MainWindow::updateFavouritesMenu(){
+    QObjectList childs = ui->menuFavourites->children();
+    for(int i=childs.size()-1;i>=0;i--){
+        QAction *a = qobject_cast<QAction*>(childs[i]);
+        if(a!=0 && a!=ui->actionAdd_current_station_to_favourites){
+            ui->menuFavourites->removeAction(a);
+        }
+    }
+    for(int i=0;i<_favourites.size();i++){
+        createMenuActionForStation(_favourites[i],ui->menuFavourites);
+    }
+}
+
+void MainWindow::clearCurrentStation(){
+    _currentStation=Station();
+}
+
+
+
+bool lessThanStationId(StationId id1, StationId id2){
+    return id1.name()<id2.name();
 }
