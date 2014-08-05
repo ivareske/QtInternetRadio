@@ -3,6 +3,9 @@
 #include <QMessageBox>
 #include <QFile>
 #include <QInputDialog>
+#include <QFileInfo>
+#include <QMediaPlaylist>
+#include "downloadmanager.h"
 
 //https://github.com/rburchell/groovy
 //http://answer.techwikihow.com/66287/playing-h264-video-stream-raspberri-pi-qt.html
@@ -14,6 +17,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
     ui->MuteCheckBox->setChecked(_settings->value("MuteCheckBox",false).toBool());
 
+    _sourceInd=0;
     _isPlaying=false;
     _player = new QMediaPlayer(0,QMediaPlayer::StreamPlayback);
 
@@ -253,25 +257,47 @@ void MainWindow::on_volumeSlider_valueChanged(){
     ui->volumeSlider->setToolTip(str);
 }
 
+bool MainWindow::isPlayList(const QString &urlString){
+    QStringList exts;exts<<"m3u"<<"pls"<<"fpl";
+    QFileInfo fi(urlString);
+    QString ext = fi.suffix().toLower();
+    return exts.contains(ext);
 
+}
 
-void MainWindow::on_PlayButton_clicked(){
+void MainWindow::on_PlayButton_clicked(int sourceInd){
 
-    _isPlaying=true;
-
-    QStringList sources = _currentStation.sources();
-    for(int i=0;i<sources.size();i++){
-        _player->setMedia(QUrl(sources[i]));
-        _player->play();
-        if( _player->state()==QMediaPlayer::PlayingState ){
-            break;
-        }
+    if(_isPlaying){
+        return;
     }
-    if(_player->state()!=QMediaPlayer::PlayingState){
-        QMessageBox::critical(this,"Error","Could not start playing any of the specified sources for channel "+_currentStation.name());
+
+    if(_sourceInd>-1){
+        _sourceInd=sourceInd;
     }
+    QStringList sources; sources<<"http://mms-live.online.no/p4_norge_mp3_mq";
+    //QStringList sources = _currentStation.sources();
+    QString source = sources(_sourceInd);
+    if(isPlayList(sources[i])){
+        DownloadManager mgr();
+        mgr.doDownload(QUrl(sources[i]));
+        mgr.execute();
+    }else{
+        playUrl(sources[i]);
+    }
+
+
+}
+
+bool MainWindow::playUrl(const QString &url){
+    _player->setMedia(url);
     _player->setVolume(ui->volumeSlider->value());
-    updateInformation();
+    bool plays = _player->state()!=QMediaPlayer::PlayingState;
+    if(plays){
+        _isPlaying=true;
+        updateInformation();
+    }
+    return plays;
+
 }
 
 void MainWindow::on_StopButton_clicked(){

@@ -64,7 +64,7 @@ protected:
     void closeEvent(QCloseEvent *e);
 
 private slots:
-    void on_PlayButton_clicked();
+    void on_PlayButton_clicked(int sourceInd=-1);
     void on_StopButton_clicked();
     void presetTriggered();
     void on_actionSelect_stations_for_logging_toggled(bool checked);
@@ -78,6 +78,8 @@ private:
     void addPresetSubMenus(QDomElement &xml, QMenu *parent);
     void addStation(QDomElement &xml, QMenu *parent);
     void changeStation();
+    bool isPlayList(const QString &urlString);
+    bool playUrl(const QString &url);
 
 
 
@@ -88,8 +90,7 @@ private:
     QMediaPlayer *_player;
     QList<Station> _favourites;
     bool _isPlaying;
-
-
+    int _sourceInd;
 
 
 };
